@@ -6,6 +6,7 @@ Created on Thu May 21 10:31:21 2020
 """
 
 
+import ctypes
 import sys
 import os
 import clr
@@ -19,13 +20,17 @@ from PrincetonInstruments.LightField.Automation import Automation
 from PrincetonInstruments.LightField.AddIns import CameraSettings as cs
 from PrincetonInstruments.LightField.AddIns import ExperimentSettings as es
 from PrincetonInstruments.LightField.AddIns import DeviceType
+from PrincetonInstruments.LightField.AddIns import ImageDataFormat
 
+from System.Runtime.InteropServices import GCHandle, GCHandleType
 from System import String
 from System.Collections.Generic import List
 
+import numpy as np
+
 import tango
 from tango import DevState, Attr, READ, READ_WRITE, DebugIt
-from tango.server import Device, command
+from tango.server import Device, command, attribute
 
 
 
@@ -45,11 +50,10 @@ class LightFieldCamera(Device):
               dtype=tango.DevFloat, unit='ms', lf=cs.ShutterTimingClosingDelay),
         dict(name='exposure', label='exposure time', access=READ_WRITE,
               dtype=tango.DevLong, unit='ms', lf=cs.ShutterTimingExposureTime),
-        # dict(name='n_ports', label='readout ports', access=READ_WRITE,
-             # dtype=tango.DevInt, lf=cs.ReadoutControlPortsUsed),
-        # dict(name='adc_speed', label='ADC speed', access=READ_WRITE,
-        #      dtype=tango.DevEnum, lf=cs.AdcSpeed, unit='MHz',
-        #      enum_labels=[1.0, 0.5, 0.1]),
+        dict(name='n_ports', label='readout ports', access=READ_WRITE,
+              dtype=tango.DevLong, lf=cs.ReadoutControlPortsUsed),
+        dict(name='adc_speed', label='ADC speed', access=READ_WRITE,
+              dtype=tango.DevFloat, lf=cs.AdcSpeed, unit='MHz'),
         # experiment settings
         dict(name='n_frames', label='number of acquisitions', access=READ_WRITE,
               dtype=tango.DevLong, lf=es.AcquisitionFramesToStore),
@@ -77,6 +81,9 @@ class LightFieldCamera(Device):
     
     attr_keys = {d['name']: d['lf'] for d in ATTRS}
     
+    image = attribute(name='image', label='CCD image', dtype=((float,),),
+                      max_dim_x=2048, max_dim_y=2048, access=READ)
+    
     def init_device(self):
         Device.init_device(self)
         # Create the LightField Application instance (true for visible)
@@ -88,7 +95,7 @@ class LightFieldCamera(Device):
         self.exp = self.lf.LightFieldApplication.Experiment
         self.register_events()
         print('experiment loaded')
-        self.fm = self.lf.LightFieldApplication.FileManager
+        self.disp = self.lf.LightFieldApplication.DisplayManager.GetDisplay(0, 0)
         self.setup_file_save()
         if self.check_camera_present():
             self.info_stream('Camera control started')
@@ -168,6 +175,11 @@ class LightFieldCamera(Device):
         fpath = os.path.join(folder, fname + '.spe')
         return os.path.exists(fpath)
     
+    def read_image(self):
+        frame = self.disp.LiveDisplaySource.ImageDataSet.GetFrame(0, 0)
+        im_data = imageframe_to_numpy(frame)
+        return im_data
+    
     @command
     def acquire(self):
         while self.next_file_exists():
@@ -189,6 +201,7 @@ class LightFieldCamera(Device):
     @DebugIt()
     def handler_new_data(self, sender, event_args):
         print('data ready')
+        self.image.set_value(self.read_image())
         
     @DebugIt()
     def handler_acq_finished(self, sender, event_args):
@@ -212,6 +225,56 @@ class LightFieldCamera(Device):
         self.exp.ImageDataSetReceived += self.handler_new_data
         
 
+def imageframe_to_numpy(frame):
+    '''
+    Retrieve data from LightField DisplaySource.
+    
+    Parameters
+    ----------
+    frame : 
+        LightField display source. Could be the live view or a loaded file.
+
+    Returns
+    -------
+    data
+        numpy array.
+    '''
+    buffer = frame.GetData()
+    image_format = frame.Format
+    src_hndl = GCHandle.Alloc(buffer, GCHandleType.Pinned)
+    try:
+        src_ptr = src_hndl.AddrOfPinnedObject().ToInt64()
+        # Possible data types returned from acquisition
+        if (image_format==ImageDataFormat.MonochromeUnsigned16):
+            buf_type = ctypes.c_ushort*len(buffer)
+        elif (image_format==ImageDataFormat.MonochromeUnsigned32):
+            buf_type = ctypes.c_uint*len(buffer)
+        elif (image_format==ImageDataFormat.MonochromeFloating32):
+            buf_type = ctypes.c_float*len(buffer)
+                    
+        cbuf = buf_type.from_address(src_ptr)
+        resultArray = np.frombuffer(cbuf, dtype=cbuf._type_)
+    # Free the handle 
+    finally:        
+        if src_hndl.IsAllocated: src_hndl.Free()
+    return np.copy(resultArray).reshape(frame.Width, frame.Height)
+
+
 if __name__ == '__main__':
     LightFieldCamera.run_server()
 
+
+'''
+from System.Runtime.InteropServices import GCHandle, GCHandleType
+from PrincetonInstruments.LightField.AddIns import ImageDataFormat
+import ctypes
+disp = lf.LightFieldApplication.DisplayManager.GetDisplay(0, 0)
+live = disp.LiveDisplaySource
+frame = live.ImageDataSet.GetFrame(0, 0)
+buffer = frame.GetData()
+
+from System.IO import FileAccess
+lastfile = lf.LightFieldApplication.FileManager.GetRecentlyAcquiredFileNames().GetItem(0)
+imageset = lf.LightFieldApplication.FileManager.OpenFile(lastfile, FileAccess.Read)
+
+'''
