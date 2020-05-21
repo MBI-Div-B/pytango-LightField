@@ -33,46 +33,48 @@ class LightFieldCamera(Device):
     ATTRS = [
         # camera settings
         dict(name='temp_read', label='sensor temperature', access=READ,
-             dtype=tango.DevFloat, unit='°C', lf=cs.SensorTemperatureReading),
+             dtype=tango.DevFloat, unit='degC', lf=cs.SensorTemperatureReading),
         dict(name='temp_set', label='temperature setpoint', access=READ_WRITE,
-             dtype=tango.DevFloat, unit='°C', lf=cs.SensorTemperatureSetPoint),
+             dtype=tango.DevFloat, unit='degC', lf=cs.SensorTemperatureSetPoint),
         dict(name='temp_status', label='temperature locked', access=READ,
              dtype=tango.DevBoolean, lf=cs.SensorTemperatureStatus),
-        dict(name='shutter_open', label='shutter opening time', access=READ_WRITE,
-             dtype=tango.DevFloat, unit='ms', lf=cs.ShutterTimingOpeningDelay),
-        dict(name='shutter_close', label='shutter closing time', access=READ_WRITE,
-             dtype=tango.DevFloat, unit='ms', lf=cs.ShutterTimingClosingDelay),
-        dict(name='exposure', label='exposure time', access=READ_WRITE,
-             dtype=tango.DevFloat, unit='ms', lf=cs.ShutterTimingExposureTime),
+        # dict(name='shutter_open', label='shutter opening time', access=READ_WRITE,
+        #      dtype=tango.DevFloat, unit='ms', lf=cs.ShutterTimingOpeningDelay),
+        # dict(name='shutter_close', label='shutter closing time', access=READ_WRITE,
+        #      dtype=tango.DevFloat, unit='ms', lf=cs.ShutterTimingClosingDelay),
+        # dict(name='exposure', label='exposure time', access=READ_WRITE,
+        #      dtype=tango.DevFloat, unit='ms', lf=cs.ShutterTimingExposureTime),
         # dict(name='n_ports', label='readout ports', access=READ_WRITE,
              # dtype=tango.DevInt, lf=cs.ReadoutControlPortsUsed),
         # dict(name='adc_speed', label='ADC speed', access=READ_WRITE,
         #      dtype=tango.DevEnum, lf=cs.AdcSpeed, unit='MHz',
         #      enum_labels=[1.0, 0.5, 0.1]),
         # experiment settings
-        dict(name='n_frames', label='number of acquisitions', access=READ_WRITE,
-             dtype=tango.DevFloat, unit='ms', lf=es.AcquisitionFramesToStore),
-        dict(name='save_folder', label='data folder', access=READ_WRITE,
-             dtype=tango.DevString, lf=es.FileNameGenerationDirectory),
-        dict(name='save_base', label='base name', access=READ_WRITE,
-             dtype=tango.DevString, lf=es.FileNameGenerationBaseFileName),
-        dict(name='save_index', label='file index', access=READ_WRITE,
-             dtype=tango.DevString, lf=es.FileNameGenerationIncrementNumber),
-        dict(name='save_digits', label='index length', access=READ_WRITE,
-             dtype=tango.DevString, lf=es.FileNameGenerationIncrementMinimumDigits),
-        dict(name='orient_on', label='apply image orientatiation',
-             access=READ_WRITE, dtype=tango.DevBoolean,
-             lf=es.OnlineCorrectionsOrientationCorrectionEnabled),
-        dict(name='orient_hor', label='flip horizontally',
-             access=READ_WRITE, dtype=tango.DevBoolean,
-             lf=es.OnlineCorrectionsOrientationCorrectionFlipHorizontally),
-        dict(name='orient_ver', label='flip vertically',
-             access=READ_WRITE, dtype=tango.DevBoolean,
-             lf=es.OnlineCorrectionsOrientationCorrectionFlipVertically),
-        dict(name='orient_rot', label='rotate 90°',
-             access=READ_WRITE, dtype=tango.DevBoolean,
-             lf=es.OnlineCorrectionsOrientationCorrectionRotateClockwise),
+        # dict(name='n_frames', label='number of acquisitions', access=READ_WRITE,
+        #      dtype=tango.DevFloat, unit='ms', lf=es.AcquisitionFramesToStore),
+        # dict(name='save_folder', label='data folder', access=READ_WRITE,
+        #      dtype=tango.DevString, lf=es.FileNameGenerationDirectory),
+        # dict(name='save_base', label='base name', access=READ_WRITE,
+        #      dtype=tango.DevString, lf=es.FileNameGenerationBaseFileName),
+        # dict(name='save_index', label='file index', access=READ_WRITE,
+        #      dtype=tango.DevString, lf=es.FileNameGenerationIncrementNumber),
+        # dict(name='save_digits', label='index length', access=READ_WRITE,
+        #      dtype=tango.DevString, lf=es.FileNameGenerationIncrementMinimumDigits),
+        # dict(name='orient_on', label='apply image orientatiation',
+        #      access=READ_WRITE, dtype=tango.DevBoolean,
+        #      lf=es.OnlineCorrectionsOrientationCorrectionEnabled),
+        # dict(name='orient_hor', label='flip horizontally',
+        #      access=READ_WRITE, dtype=tango.DevBoolean,
+        #      lf=es.OnlineCorrectionsOrientationCorrectionFlipHorizontally),
+        # dict(name='orient_ver', label='flip vertically',
+        #      access=READ_WRITE, dtype=tango.DevBoolean,
+        #      lf=es.OnlineCorrectionsOrientationCorrectionFlipVertically),
+        # dict(name='orient_rot', label='rotate 90 degree',
+        #      access=READ_WRITE, dtype=tango.DevBoolean,
+        #      lf=es.OnlineCorrectionsOrientationCorrectionRotateClockwise),
         ]
+    
+    attr_keys = {d['name']: d['lf'] for d in ATTRS}
     
     def init_device(self):
         Device.init_device(self)
@@ -94,7 +96,7 @@ class LightFieldCamera(Device):
     
     def setup_file_save(self):
         '''Make sure that file save options are correct.'''
-        self.lf_setter(es.FileNameGenerationAttachDate, False)
+        self.lf_setter(es.FileNameGenerationAttachDate, True)
         self.lf_setter(es.FileNameGenerationAttachTime, False)
         self.lf_setter(es.FileNameGenerationAttachIncrement, True)
         return
@@ -112,12 +114,7 @@ class LightFieldCamera(Device):
         '''
         self.debug_stream('in make attribute')
         name, dtype, access, lf = [attr_dict.pop(k) for k in ['name', 'dtype', 'access', 'lf']]
-        new_attr = self.add_attribute(
-            Attr(name, dtype, access),
-            r_meth=lambda: self.lf_getter(lf),
-            w_meth=lambda v: self.lf_setter(lf, v),
-            )
-        
+        new_attr = Attr(name, dtype, access)
         prop = tango.UserDefaultAttrProp()
         if 'label' in attr_dict:
             prop.set_label(attr_dict['label'])
@@ -127,6 +124,10 @@ class LightFieldCamera(Device):
             prop.set_enum_labels(attr_dict['enum_labels'])
         
         new_attr.set_default_properties(prop)
+        self.add_attribute(new_attr,
+            r_meth=self.read_general,
+            w_meth=self.write_general,
+            )
         return
         
     def check_camera_present(self):
@@ -141,11 +142,30 @@ class LightFieldCamera(Device):
     
     def lf_getter(self, key):
         self.debug_stream('in config getter:')
-        self.exp.GetValue(key)
+        val = self.exp.GetValue(key)
+        print('read', key, ':', val)
+        return val
+    
+    def read_general(self, attr):
+        key = self.attr_keys[attr.get_name()]
+        self.debug_stream('reading', key)
+        print('read general:', key)
+        return self.lf_getter(key)
+    
+    def write_general(self, attr):
+        key = self.attr_keys[attr.get_name()]
+        val = attr.get_write_value()
+        print('write general', key, '->', val)
+        self.debug_stream('setting', key, '->', val)
+        self.lf_setter(key, val)
     
 
 if __name__ == '__main__':
     LightFieldCamera.run_server()
 
 
-        
+def lf_setter(exp, key, value):
+    exp.SetValue(key, value)
+    
+def lf_getter(exp, key):
+    return exp.GetValue(key)
