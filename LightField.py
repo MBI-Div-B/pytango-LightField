@@ -33,7 +33,6 @@ from tango import DevState, Attr, READ, READ_WRITE, DebugIt
 from tango.server import Device, command, attribute
 
 
-
 class LightFieldCamera(Device):
     ATTRS = [
         # camera settings
@@ -176,9 +175,7 @@ class LightFieldCamera(Device):
         return os.path.exists(fpath)
     
     def read_image(self):
-        frame = self.disp.LiveDisplaySource.ImageDataSet.GetFrame(0, 0)
-        im_data = imageframe_to_numpy(frame)
-        return im_data
+        return self.image.get_value()
     
     @command
     def acquire(self):
@@ -201,7 +198,9 @@ class LightFieldCamera(Device):
     @DebugIt()
     def handler_new_data(self, sender, event_args):
         print('data ready')
-        self.image.set_value(self.read_image())
+        frame = self.disp.LiveDisplaySource.ImageDataSet.GetFrame(0, 0)
+        im_data = imageframe_to_numpy(frame)
+        self.image.set_value(im_data)
         
     @DebugIt()
     def handler_acq_finished(self, sender, event_args):
@@ -264,17 +263,3 @@ if __name__ == '__main__':
     LightFieldCamera.run_server()
 
 
-'''
-from System.Runtime.InteropServices import GCHandle, GCHandleType
-from PrincetonInstruments.LightField.AddIns import ImageDataFormat
-import ctypes
-disp = lf.LightFieldApplication.DisplayManager.GetDisplay(0, 0)
-live = disp.LiveDisplaySource
-frame = live.ImageDataSet.GetFrame(0, 0)
-buffer = frame.GetData()
-
-from System.IO import FileAccess
-lastfile = lf.LightFieldApplication.FileManager.GetRecentlyAcquiredFileNames().GetItem(0)
-imageset = lf.LightFieldApplication.FileManager.OpenFile(lastfile, FileAccess.Read)
-
-'''
