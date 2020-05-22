@@ -296,18 +296,15 @@ def imageframe_to_numpy(frame):
     try:
         src_ptr = src_hndl.AddrOfPinnedObject().ToInt64()
         # Possible data types returned from acquisition
-        if (image_format==ImageDataFormat.MonochromeUnsigned16):
-            buf_type = ctypes.c_ushort*len(buffer)
-        elif (image_format==ImageDataFormat.MonochromeUnsigned32):
-            buf_type = ctypes.c_uint*len(buffer)
-        elif (image_format==ImageDataFormat.MonochromeFloating32):
-            buf_type = ctypes.c_float*len(buffer)
-        
+        dtypes = {ImageDataFormat.MonochromeUnsigned16: ctypes.c_ushort,
+                  ImageDataFormat.MonochromeUnsigned32: ctypes.c_uint,
+                  ImageDataFormat.MonochromeFloating32: ctypes.c_float}
+        buf_type = dtypes[image_format] * len(buffer)
         cbuf = buf_type.from_address(src_ptr)
         resultArray = np.frombuffer(cbuf, dtype=cbuf._type_)
-    # Free the handle 
     finally:        
-        if src_hndl.IsAllocated: src_hndl.Free()
+        if src_hndl.IsAllocated:
+            src_hndl.Free()
     return np.copy(resultArray).reshape(frame.Height, frame.Width)
 
 
