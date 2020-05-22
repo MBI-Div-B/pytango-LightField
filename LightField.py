@@ -34,7 +34,7 @@ from tango.server import Device, command, attribute
 
 
 class LightFieldCamera(Device):
-    ATTRS = [
+    DYN_ATTRS = [
         # camera settings
         dict(name='temp_read', label='sensor temperature', access=READ,
              dtype=tango.DevLong, unit='degC', lf=cs.SensorTemperatureReading),
@@ -49,8 +49,8 @@ class LightFieldCamera(Device):
               dtype=tango.DevFloat, unit='ms', lf=cs.ShutterTimingClosingDelay),
         dict(name='exposure', label='exposure time', access=READ_WRITE,
               dtype=tango.DevLong, unit='ms', lf=cs.ShutterTimingExposureTime),
-        dict(name='n_ports', label='readout ports', access=READ_WRITE,
-              dtype=tango.DevLong, lf=cs.ReadoutControlPortsUsed),
+        # dict(name='n_ports', label='readout ports', access=READ_WRITE,
+        #       dtype=tango.DevLong, lf=cs.ReadoutControlPortsUsed),
         dict(name='adc_speed', label='ADC speed', access=READ_WRITE,
               dtype=tango.DevFloat, lf=cs.AdcSpeed, unit='MHz'),
         # experiment settings
@@ -78,39 +78,34 @@ class LightFieldCamera(Device):
               lf=es.OnlineCorrectionsOrientationCorrectionRotateClockwise),
         ]
     
-    attr_keys = {d['name']: d['lf'] for d in ATTRS}
+    attr_keys = {d['name']: d['lf'] for d in DYN_ATTRS}
     
+    # TODO: get this from LF
     image = attribute(name='image', label='CCD image', dtype=((float,),),
-                      max_dim_x=2048, max_dim_y=2048, access=READ)
+                      max_dim_x=4096, max_dim_y=4096, access=READ)
     
     def init_device(self):
         Device.init_device(self)
         # Create the LightField Application instance (true for visible)
         self.set_state(DevState.INIT)
-        for d in self.ATTRS:
-            self.make_attribute(d)
         self.lf = Automation(True, List[String]())
         print('lightfield started')
         self.exp = self.lf.LightFieldApplication.Experiment
         self.register_events()
         print('experiment loaded')
-        self.disp = self.lf.LightFieldApplication.DisplayManager.GetDisplay(0, 0)
         self.setup_file_save()
         if self.check_camera_present():
-            self.info_stream('Camera control started')
+            print('Camera control started', file=self.log_info)
             self.set_state(DevState.ON)
         else:
-            self.error_stream('No camera found.')
+            print('No camera found.', file=self.log_error)
             self.set_state(DevState.FAULT)
+        # self._image = np.zeros((2048, 2048))
     
-    def setup_file_save(self):
-        '''Make sure that file save options are correct.'''
-        self.lightfield_set(es.FileNameGenerationAttachDate, False)
-        self.lightfield_set(es.FileNameGenerationAttachTime, False)
-        self.lightfield_set(es.FileNameGenerationAttachIncrement, True)
-        return
+    def initialize_dynamic_attributes(self):
+        for d in self.DYN_ATTRS:
+            self.make_attribute(d)
     
-    @DebugIt()
     def make_attribute(self, attr_dict):
         '''Dynamically generate simple attributes for LightField settings.
 
@@ -122,22 +117,32 @@ class LightFieldCamera(Device):
         -------
         None.
         '''
-        self.debug_stream('in make attribute')
-        name, dtype, access, lf = [attr_dict.pop(k) for k in ['name', 'dtype', 'access', 'lf']]
+        # TODO: check if attribute valid to prevent LF crashing
+        baseprops = ['name', 'dtype', 'access', 'lf']
+        name, dtype, access, lf = [attr_dict.pop(k) for k in baseprops]
+        print('making attribute', name, file=self.log_debug)
         new_attr = Attr(name, dtype, access)
         prop = tango.UserDefaultAttrProp()
         for k, v in attr_dict.items():
             try:
                 setattr(prop, k, v)
             except AttributeError:
-                pass
+                print("error setting attribute property:", name, k, v,
+                      file=self.log_error)
         
         new_attr.set_default_properties(prop)
         self.add_attribute(new_attr,
             r_meth=self.read_general,
             w_meth=self.write_general,
             )
-        
+    
+    def setup_file_save(self):
+        '''Make sure that file save options are correct.'''
+        self.lightfield_set(es.FileNameGenerationAttachDate, False)
+        self.lightfield_set(es.FileNameGenerationAttachTime, False)
+        self.lightfield_set(es.FileNameGenerationAttachIncrement, True)
+        return
+    
     def check_camera_present(self):
         for device in self.exp.ExperimentDevices:
             if (device.Type == DeviceType.Camera):
@@ -145,26 +150,21 @@ class LightFieldCamera(Device):
         return False
     
     def lightfield_set(self, key, value):
-        # self.debug_stream('in config_setter:')
         self.exp.SetValue(key, value)
     
     def lightfield_get(self, key):
-        # self.debug_stream('in config getter:')
-        # print('read', key)
         val = self.exp.GetValue(key)
         return val
     
     def read_general(self, attr):
         key = self.attr_keys[attr.get_name()]
-        # self.debug_stream('reading', key)
-        # print('read general:', key)
+        # print('reading', str(key), file=self.log_debug)
         attr.set_value(self.lightfield_get(key))
     
     def write_general(self, attr):
         key = self.attr_keys[attr.get_name()]
         val = attr.get_write_value()
-        # print('write general', key, '->', val)
-        # self.debug_stream('setting', key, '->', val)
+        print('setting', key, '->', val, file=self.log_debug)
         self.lightfield_set(key, val)
     
     def next_file_exists(self):
@@ -175,51 +175,52 @@ class LightFieldCamera(Device):
         return os.path.exists(fpath)
     
     def read_image(self):
-        return self.image.get_value()
+        return self._image
     
     @command
     def acquire(self):
         while self.next_file_exists():
             index = self.lightfield_get(self.attr_keys['save_index'])
-            print('file exists! Incrementing index.')
+            print('file exists! Incrementing index.', file=self.log_warn)
             self.lightfield_set(self.attr_keys['save_index'], index + 1)
-        # self.set_state(DevState.MOVING)
         self.exp.Acquire()
     
     @command
     def stop(self):
         self.exp.Stop()
     
-    @DebugIt()
     @command
     def preview(self):
         self.exp.Preview()
     
     @DebugIt()
     def handler_new_data(self, sender, event_args):
-        print('data ready')
-        frame = self.disp.LiveDisplaySource.ImageDataSet.GetFrame(0, 0)
-        im_data = imageframe_to_numpy(frame)
-        self.image.set_value(im_data)
+        data = event_args.ImageDataSet
+        if data.Frames > 0:
+            frame = data.GetFrame(0, 0)
+            self._image = imageframe_to_numpy(frame)
+            
+            dim_x, dim_y = self._image.shape
+            print('new image:', self._image.shape, file=self.log_info)
+            self.push_change_event('image', self._image, dim_x, dim_y)
+        else:
+            print('no frames:', data.Frames, file=self.log_error)
         
     @DebugIt()
     def handler_acq_finished(self, sender, event_args):
         self.set_state(DevState.ON)
     
     @DebugIt()
-    def handler_exp_ready(self, sender, event_args):
-        print(event_args)
-        if self.exp.IsReadyToRun:
-            self.set_state(DevState.ON)
-        else:
-            self.set_state(DevState.RUNNING)
+    def handler_acq_start(self, sender, event_args):
+        self.set_state(DevState.RUNNING)
     
     @DebugIt()
     def handler_lightfield_close(self, sender, event_args):
         self.set_state(DevState.OFF)
     
     def register_events(self):
-        self.exp.IsReadyToRunChanged += self.handler_exp_ready
+        self.exp.ExperimentStarted += self.handler_acq_start
+        self.exp.ExperimentCompleted += self.handler_acq_finished
         self.lf.LightFieldClosed += self.handler_lightfield_close
         self.exp.ImageDataSetReceived += self.handler_new_data
         
@@ -250,13 +251,13 @@ def imageframe_to_numpy(frame):
             buf_type = ctypes.c_uint*len(buffer)
         elif (image_format==ImageDataFormat.MonochromeFloating32):
             buf_type = ctypes.c_float*len(buffer)
-                    
+        
         cbuf = buf_type.from_address(src_ptr)
         resultArray = np.frombuffer(cbuf, dtype=cbuf._type_)
     # Free the handle 
     finally:        
         if src_hndl.IsAllocated: src_hndl.Free()
-    return np.copy(resultArray).reshape(frame.Width, frame.Height)
+    return np.copy(resultArray).reshape(frame.Height, frame.Width)
 
 
 if __name__ == '__main__':
