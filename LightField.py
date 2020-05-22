@@ -212,19 +212,23 @@ class LightFieldCamera(Device):
         
         input is a list of ints [x0, x1, y0, y1, binning]
         '''
-        # self.exp.SetCustomRegions()
-        if len(roi) == 4:
-            x0, x1, y0, y1 = [roi[i] for i in range(4)]
-            N = 1
-        elif len(roi) > 4:
-            x0, x1, y0, y1, N = [roi[i] for i in range(5)]
+        if not self.exp.IsRunning:
+            if len(roi) == 4:
+                x0, x1, y0, y1 = [roi[i] for i in range(4)]
+                N = 1
+            elif len(roi) > 4:
+                x0, x1, y0, y1, N = [roi[i] for i in range(5)]
+            else:
+                print('cannot understand ROI', file=self.log_error)
+                return False
+            region = RegionOfInterest(x0, y0, x1 - x0, y1 - y0, N, N)
+            
+            self.exp.SetCustomRegions((region,))
+            print('set custom ROI', file=self.log_debug)
+            return True
         else:
-            print('cannot understand ROI', file=self.log_error)
+            print('Cannot set ROI during acquisition', file=self.log_error)
             return False
-        region = RegionOfInterest(x0, y0, x1 - x0, y1 - y0, N, N)
-        self.exp.SetCustomRegions((region,))
-        print('set custom ROI', file=self.log_debug)
-        return True
     
     @command
     def acquire(self):
