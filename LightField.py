@@ -50,8 +50,8 @@ class LightFieldCamera(Device):
               dtype=tango.DevFloat, unit='ms', lf=cs.ShutterTimingClosingDelay),
         dict(name='exposure', label='exposure time', access=READ_WRITE,
               dtype=tango.DevFloat, unit='ms', lf=cs.ShutterTimingExposureTime),
-        # dict(name='n_ports', label='readout ports', access=READ_WRITE,
-        #       dtype=tango.DevLong, lf=cs.ReadoutControlPortsUsed),
+        dict(name='n_ports', label='readout ports', access=READ_WRITE,
+              dtype=tango.DevLong, lf=cs.ReadoutControlPortsUsed),
         dict(name='adc_speed', label='ADC speed', access=READ_WRITE,
               dtype=tango.DevFloat, lf=cs.AdcSpeed, unit='MHz'),
         # experiment settings
@@ -65,7 +65,7 @@ class LightFieldCamera(Device):
               dtype=tango.DevLong, lf=es.FileNameGenerationIncrementNumber,
               min_value='0'),
         dict(name='save_digits', label='index length', access=READ_WRITE,
-              dtype=tango.DevUShort, min_value='1', max_value='10',
+              dtype=tango.DevLong, min_value='1', max_value='10',
               lf=es.FileNameGenerationIncrementMinimumDigits),
         dict(name='orient_on', label='apply image orientatiation',
               access=READ_WRITE, dtype=tango.DevBoolean,
@@ -98,12 +98,10 @@ class LightFieldCamera(Device):
         print('experiment loaded')
         self.setup_file_save()
         if self.check_camera_present():
-            print('Camera control started', file=self.log_info)
             self.set_state(DevState.ON)
         else:
             print('No camera found.', file=self.log_error)
             self.set_state(DevState.FAULT)
-        # self._image = np.zeros((2048, 2048))
     
     def initialize_dynamic_attributes(self):
         for d in self.DYN_ATTRS:
@@ -120,25 +118,28 @@ class LightFieldCamera(Device):
         -------
         None.
         '''
-        # TODO: check if attribute valid to prevent LF crashing
         baseprops = ['name', 'dtype', 'access', 'lf']
         name, dtype, access, lf = [attr_dict.pop(k) for k in baseprops]
-        print('making attribute', name, file=self.log_debug)
-        new_attr = Attr(name, dtype, access)
-        prop = tango.UserDefaultAttrProp()
-        for k, v in attr_dict.items():
-            try:
-                meth = getattr(prop, 'set_' + k)
-                meth(v)
-            except AttributeError:
-                print("error setting attribute property:", name, k, v,
-                      file=self.log_error)
-        
-        new_attr.set_default_properties(prop)
-        self.add_attribute(new_attr,
-            r_meth=self.read_general,
-            w_meth=self.write_general,
-            )
+        if self.exp.Exists(lf):
+            print('making attribute', name, file=self.log_debug)
+            new_attr = Attr(name, dtype, access)
+            prop = tango.UserDefaultAttrProp()
+            for k, v in attr_dict.items():
+                try:
+                    meth = getattr(prop, 'set_' + k)
+                    meth(v)
+                except AttributeError:
+                    print("error setting attribute property:", name, k, v,
+                          file=self.log_error)
+            
+            new_attr.set_default_properties(prop)
+            self.add_attribute(new_attr,
+                r_meth=self.read_general,
+                w_meth=self.write_general,
+                )
+        else:
+            print(f'Skipping attribute {name}: Does not exist on this device',
+                  file=self.log_warn)
     
     def setup_file_save(self):
         '''Make sure that file save options are correct.'''
@@ -150,6 +151,8 @@ class LightFieldCamera(Device):
     def check_camera_present(self):
         for device in self.exp.ExperimentDevices:
             if (device.Type == DeviceType.Camera):
+                print(f'Connected: {device.Model}, S/N {device.SerialNumber}',
+                      file=self.log_info)
                 return True
         return False
     
@@ -186,6 +189,11 @@ class LightFieldCamera(Device):
     
     def read_image(self):
         return self._image
+    
+    @command(dtype_in=int)
+    def set_binned(self, N):
+        if not self.exp.IsRunning:
+            self.SetBinnedSensorRegion(N, N)
     
     @command
     def acquire(self):
