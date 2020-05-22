@@ -21,6 +21,7 @@ from PrincetonInstruments.LightField.AddIns import CameraSettings as cs
 from PrincetonInstruments.LightField.AddIns import ExperimentSettings as es
 from PrincetonInstruments.LightField.AddIns import DeviceType
 from PrincetonInstruments.LightField.AddIns import ImageDataFormat
+from PrincetonInstruments.LightField.AddIns import RegionOfInterest
 
 from System.Runtime.InteropServices import GCHandle, GCHandleType
 from System import String
@@ -191,9 +192,39 @@ class LightFieldCamera(Device):
         return self._image
     
     @command(dtype_in=int)
-    def set_binned(self, N):
+    def set_binning(self, N):
+        '''Sets the camera to full chip binning mode.
+        
+        Use the `set_roi` command to setup a region of interest with binning.
+        '''
         if not self.exp.IsRunning:
-            self.SetBinnedSensorRegion(N, N)
+            if N > 1:
+                self.exp.SetBinnedSensorRegion(N, N)
+                print(f'full chip binning {N}x{N}', file=self.log_debug)
+            else:
+                self.exp.SetFullSensorRegion()
+                print('full chip unbinned', file=self.log_debug)
+    
+    @command(dtype_in=(int,), doc_in='list of ints [x0, x1, y0, y1, bin]',
+             dtype_out=bool, doc_out='True if successful')
+    def set_roi(self, roi):
+        '''Sets the camera to a (possibly binned) ROI.
+        
+        input is a list of ints [x0, x1, y0, y1, binning]
+        '''
+        # self.exp.SetCustomRegions()
+        if len(roi) == 4:
+            x0, x1, y0, y1 = [roi[i] for i in range(4)]
+            N = 1
+        elif len(roi) > 4:
+            x0, x1, y0, y1, N = [roi[i] for i in range(5)]
+        else:
+            print('cannot understand ROI', file=self.log_error)
+            return False
+        region = RegionOfInterest(x0, y0, x1 - x0, y1 - y0, N, N)
+        self.exp.SetCustomRegions((region,))
+        print('set custom ROI', file=self.log_debug)
+        return True
     
     @command
     def acquire(self):
@@ -201,7 +232,8 @@ class LightFieldCamera(Device):
             index = self.lightfield_get(self.attr_keys['save_index'])
             print('file exists! Incrementing index.', file=self.log_warn)
             self.lightfield_set(self.attr_keys['save_index'], index + 1)
-        self.exp.Acquire()
+        if self.exp.IsReadyToRun:
+            self.exp.Acquire()
     
     @command
     def stop(self):
@@ -209,7 +241,8 @@ class LightFieldCamera(Device):
     
     @command
     def preview(self):
-        self.exp.Preview()
+        if self.exp.IsReadyToRun:
+            self.exp.Preview()
     
     def handler_new_data(self, sender, event_args):
         data = event_args.ImageDataSet
