@@ -37,18 +37,19 @@ class LightFieldCamera(Device):
     DYN_ATTRS = [
         # camera settings
         dict(name='temp_read', label='sensor temperature', access=READ,
-             dtype=tango.DevLong, unit='degC', lf=cs.SensorTemperatureReading),
+             dtype=tango.DevFloat, unit='degC', lf=cs.SensorTemperatureReading),
         dict(name='temp_set', label='temperature setpoint', access=READ_WRITE,
-              dtype=tango.DevLong, unit='degC', lf=cs.SensorTemperatureSetPoint),
+              dtype=tango.DevFloat, unit='degC', lf=cs.SensorTemperatureSetPoint),
         dict(name='temp_status', label='temperature locked', access=READ,
-              dtype=tango.DevLong, lf=cs.SensorTemperatureStatus),
+              dtype=tango.DevLong, lf=cs.SensorTemperatureStatus,
+              enum_labels=['invalid', 'unlocked', 'locked', 'fault']),
         dict(name='shutter_mode', label='shutter mode', access=READ_WRITE,
               dtype=tango.DevLong, lf=cs.ShutterTimingMode,
-              description='1: normal, 2: open, 3: close'),
+              enum_labels=['invalid', 'normal', 'closed', 'open', 'trigger']),
         dict(name='shutter_close', label='shutter closing time', access=READ_WRITE,
               dtype=tango.DevFloat, unit='ms', lf=cs.ShutterTimingClosingDelay),
         dict(name='exposure', label='exposure time', access=READ_WRITE,
-              dtype=tango.DevLong, unit='ms', lf=cs.ShutterTimingExposureTime),
+              dtype=tango.DevFloat, unit='ms', lf=cs.ShutterTimingExposureTime),
         # dict(name='n_ports', label='readout ports', access=READ_WRITE,
         #       dtype=tango.DevLong, lf=cs.ReadoutControlPortsUsed),
         dict(name='adc_speed', label='ADC speed', access=READ_WRITE,
@@ -61,9 +62,11 @@ class LightFieldCamera(Device):
         dict(name='save_base', label='base name', access=READ_WRITE,
               dtype=tango.DevString, lf=es.FileNameGenerationBaseFileName),
         dict(name='save_index', label='file index', access=READ_WRITE,
-              dtype=tango.DevLong, lf=es.FileNameGenerationIncrementNumber),
+              dtype=tango.DevLong, lf=es.FileNameGenerationIncrementNumber,
+              min_value='0'),
         dict(name='save_digits', label='index length', access=READ_WRITE,
-              dtype=tango.DevLong, lf=es.FileNameGenerationIncrementMinimumDigits),
+              dtype=tango.DevUShort, min_value='1', max_value='10',
+              lf=es.FileNameGenerationIncrementMinimumDigits),
         dict(name='orient_on', label='apply image orientatiation',
               access=READ_WRITE, dtype=tango.DevBoolean,
               lf=es.OnlineCorrectionsOrientationCorrectionEnabled),
@@ -125,7 +128,8 @@ class LightFieldCamera(Device):
         prop = tango.UserDefaultAttrProp()
         for k, v in attr_dict.items():
             try:
-                setattr(prop, k, v)
+                meth = getattr(prop, 'set_' + k)
+                meth(v)
             except AttributeError:
                 print("error setting attribute property:", name, k, v,
                       file=self.log_error)
@@ -150,7 +154,13 @@ class LightFieldCamera(Device):
         return False
     
     def lightfield_set(self, key, value):
-        self.exp.SetValue(key, value)
+        if not self.exp.IsRunning:
+            if self.exp.IsValid(key, value):
+                self.exp.SetValue(key, value)
+            else:
+                print(f'invalid setting: {key}->{value}', file=self.log_error)
+        else:
+            print(f'Cannot set {key}: acquiring', file=self.log_warn)
     
     def lightfield_get(self, key):
         val = self.exp.GetValue(key)
@@ -193,7 +203,6 @@ class LightFieldCamera(Device):
     def preview(self):
         self.exp.Preview()
     
-    @DebugIt()
     def handler_new_data(self, sender, event_args):
         data = event_args.ImageDataSet
         if data.Frames > 0:
@@ -206,15 +215,12 @@ class LightFieldCamera(Device):
         else:
             print('no frames:', data.Frames, file=self.log_error)
         
-    @DebugIt()
     def handler_acq_finished(self, sender, event_args):
         self.set_state(DevState.ON)
     
-    @DebugIt()
     def handler_acq_start(self, sender, event_args):
         self.set_state(DevState.RUNNING)
     
-    @DebugIt()
     def handler_lightfield_close(self, sender, event_args):
         self.set_state(DevState.OFF)
     
