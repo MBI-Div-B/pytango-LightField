@@ -35,15 +35,21 @@ from tango.server import Device, command, attribute
 
 
 class LightFieldCamera(Device):
+    # list of simple scalar controls that can be created automatically
+    # required fields: name, access, dtype, lf
+    # `lf` is the LightField settingName
     DYN_ATTRS = [
         # camera settings
         dict(name='temp_read', label='sensor temperature', access=READ,
              dtype=tango.DevFloat, unit='degC', lf=cs.SensorTemperatureReading),
         dict(name='temp_set', label='temperature setpoint', access=READ_WRITE,
               dtype=tango.DevFloat, unit='degC', lf=cs.SensorTemperatureSetPoint),
+        # FIXME: this should be a DevEnum, which is currently bugged in
+        # dynamic creation: https://github.com/tango-controls/pytango/pull/348
         dict(name='temp_status', label='temperature locked', access=READ,
               dtype=tango.DevLong, lf=cs.SensorTemperatureStatus,
               enum_labels=['invalid', 'unlocked', 'locked', 'fault']),
+        # FIXME: DevEnum
         dict(name='shutter_mode', label='shutter mode', access=READ_WRITE,
               dtype=tango.DevLong, lf=cs.ShutterTimingMode,
               enum_labels=['invalid', 'normal', 'closed', 'open', 'trigger']),
@@ -89,18 +95,18 @@ class LightFieldCamera(Device):
     
     def init_device(self):
         Device.init_device(self)
-        self._image = np.zeros((2048, 2048))
         self.set_change_event('image', True, False)
-        # Create the LightField Application instance (true for visible)
         self.set_state(DevState.INIT)
-        self.lf = Automation(True, List[String]())
-        print('lightfield started')
+        self.lf = Automation(True, List[String]())  # starts LF instance
         self.exp = self.lf.LightFieldApplication.Experiment
-        self.register_events()
-        print('experiment loaded')
-        self.setup_file_save()
-        if self.check_camera_present():
+        self.device = self.get_camera_device()
+        if self.device is not None:
             self.set_state(DevState.ON)
+            name, mod, sn, shape = self.get_sensor_info()
+            print(f'Connected: {name} ({mod}) #{sn}', file=self.log_info)
+            self._image = np.zeros(shape)
+            self.register_events()
+            self.setup_file_save()
         else:
             print('No camera found.', file=self.log_error)
             self.set_state(DevState.FAULT)
@@ -110,16 +116,7 @@ class LightFieldCamera(Device):
             self.make_attribute(d)
     
     def make_attribute(self, attr_dict):
-        '''Dynamically generate simple attributes for LightField settings.
-
-        Parameters
-        ----------
-        attr_dict : dictionary
-
-        Returns
-        -------
-        None.
-        '''
+        '''Dynamically generate simple attributes for LightField settings.'''
         baseprops = ['name', 'dtype', 'access', 'lf']
         name, dtype, access, lf = [attr_dict.pop(k) for k in baseprops]
         if self.exp.Exists(lf):
@@ -150,19 +147,27 @@ class LightFieldCamera(Device):
         self.lightfield_set(es.FileNameGenerationAttachIncrement, True)
         return
     
-    def check_camera_present(self):
+    def get_sensor_info(self):
+        '''Query the sensor name, model, serial number and active area.'''
+        width = self.lightfield_get(cs.SensorInformationActiveAreaWidth)
+        height = self.lightfield_get(cs.SensorInformationActiveAreaHeight)
+        name = self.lightfield_get(cs.SensorInformationSensorName)
+        model = self.device.Model
+        serial = self.device.SerialNumber
+        return name, model, serial, (height, width)
+        
+    def get_camera_device(self):
+        '''Returns the first registered camera device.'''
         for device in self.exp.ExperimentDevices:
-            if (device.Type == DeviceType.Camera):
-                print(f'Connected: {device.Model}, S/N {device.SerialNumber}',
-                      file=self.log_info)
-                return True
-        return False
+            if device.Type == DeviceType.Camera:
+                return device
+        return None
     
     def lightfield_set(self, key, value):
         if not self.exp.IsRunning:
             if self.exp.IsValid(key, value):
                 self.exp.SetValue(key, value)
-                print(f'set {key} -> {value}', file=self.log_info)
+                print(f'set {key} -> {value}', file=self.log_debug)
             else:
                 print(f'invalid setting: {key}->{value}', file=self.log_error)
         else:
@@ -174,7 +179,7 @@ class LightFieldCamera(Device):
     
     def read_general(self, attr):
         key = self.attr_keys[attr.get_name()]
-        # print('reading', str(key), file=self.log_debug)
+        print('reading', key, file=self.log_debug)
         attr.set_value(self.lightfield_get(key))
     
     def write_general(self, attr):
