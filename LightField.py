@@ -271,7 +271,7 @@ class LightFieldCamera(Device):
             
             dim_x, dim_y = self._image.shape
             print('new image:', self._image.shape, file=self.log_info)
-            self.push_change_event('image', self._image, dim_x, dim_y)
+            self.push_change_event('image', self._image, dim_y, dim_x)
         else:
             print('no frames:', data.Frames, file=self.log_error)
     
