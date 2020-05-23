@@ -102,8 +102,8 @@ class LightFieldCamera(Device):
         self.device = self.get_camera_device()
         if self.device is not None:
             self.set_state(DevState.ON)
-            name, mod, sn, shape = self.get_sensor_info()
-            print(f'Connected: {name} ({mod}) #{sn}', file=self.log_info)
+            name, model, sn, shape = self.get_sensor_info()
+            print('Connected:', model, name, sn, file=self.log_info)
             self._image = np.zeros(shape)
             self.register_events()
             self.setup_file_save()
@@ -125,14 +125,15 @@ class LightFieldCamera(Device):
             prop = tango.UserDefaultAttrProp()
             for k, v in attr_dict.items():
                 try:
-                    meth = getattr(prop, 'set_' + k)
-                    meth(v)
+                    property_setter = getattr(prop, 'set_' + k)
+                    property_setter(v)
                 except AttributeError:
                     print("error setting attribute property:", name, k, v,
                           file=self.log_error)
             
             new_attr.set_default_properties(prop)
-            self.add_attribute(new_attr,
+            self.add_attribute(
+                new_attr,
                 r_meth=self.read_general,
                 w_meth=self.write_general,
                 )
