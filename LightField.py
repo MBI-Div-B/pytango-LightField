@@ -30,7 +30,7 @@ from System.Collections.Generic import List
 import numpy as np
 
 import tango
-from tango import DevState, Attr, READ, READ_WRITE, DebugIt
+from tango import DevState, Attr, READ, READ_WRITE
 from tango.server import Device, command, attribute
 
 
@@ -84,12 +84,13 @@ class LightFieldCamera(Device):
     
     attr_keys = {d['name']: d['lf'] for d in DYN_ATTRS}
     
-    # TODO: get this from LF
-    image = attribute(name='image', label='CCD image', dtype=((float,),),
-                      max_dim_x=4096, max_dim_y=4096, access=READ)
+    image = attribute(name='image', label='CCD image', max_dim_x=4096,
+                      max_dim_y=4096, dtype=((tango.DevUShort,),), access=READ)
     
     def init_device(self):
         Device.init_device(self)
+        self._image = np.zeros((2048, 2048))
+        self.set_change_event('image', True, False)
         # Create the LightField Application instance (true for visible)
         self.set_state(DevState.INIT)
         self.lf = Automation(True, List[String]())
@@ -161,6 +162,7 @@ class LightFieldCamera(Device):
         if not self.exp.IsRunning:
             if self.exp.IsValid(key, value):
                 self.exp.SetValue(key, value)
+                print(f'set {key} -> {value}', file=self.log_info)
             else:
                 print(f'invalid setting: {key}->{value}', file=self.log_error)
         else:
@@ -187,6 +189,15 @@ class LightFieldCamera(Device):
         fname = self.lightfield_get(es.FileNameGenerationExampleFileName)
         fpath = os.path.join(folder, fname + '.spe')
         return os.path.exists(fpath)
+    
+    def increment_to_next_free(self):
+        '''
+        Make sure next file name is avilable by incrementing the file index.
+        '''
+        while self.next_file_exists():
+            index = self.lightfield_get(self.attr_keys['save_index'])
+            print('file exists! Incrementing index.', file=self.log_warn)
+            self.lightfield_set(self.attr_keys['save_index'], index + 1)
     
     def read_image(self):
         return self._image
@@ -232,10 +243,7 @@ class LightFieldCamera(Device):
     
     @command
     def acquire(self):
-        while self.next_file_exists():
-            index = self.lightfield_get(self.attr_keys['save_index'])
-            print('file exists! Incrementing index.', file=self.log_warn)
-            self.lightfield_set(self.attr_keys['save_index'], index + 1)
+        self.increment_to_next_free()
         if self.exp.IsReadyToRun:
             self.exp.Acquire()
     
@@ -245,6 +253,7 @@ class LightFieldCamera(Device):
     
     @command
     def preview(self):
+        self.increment_to_next_free()
         if self.exp.IsReadyToRun:
             self.exp.Preview()
     
@@ -259,7 +268,7 @@ class LightFieldCamera(Device):
             self.push_change_event('image', self._image, dim_x, dim_y)
         else:
             print('no frames:', data.Frames, file=self.log_error)
-        
+    
     def handler_acq_finished(self, sender, event_args):
         self.set_state(DevState.ON)
     
@@ -301,11 +310,11 @@ def imageframe_to_numpy(frame):
                   ImageDataFormat.MonochromeFloating32: ctypes.c_float}
         buf_type = dtypes[image_format] * len(buffer)
         cbuf = buf_type.from_address(src_ptr)
-        resultArray = np.frombuffer(cbuf, dtype=cbuf._type_)
+        imagedata = np.frombuffer(cbuf, dtype=cbuf._type_)
     finally:        
         if src_hndl.IsAllocated:
             src_hndl.Free()
-    return np.copy(resultArray).reshape(frame.Height, frame.Width)
+    return np.copy(imagedata).reshape(frame.Height, frame.Width)
 
 
 if __name__ == '__main__':
