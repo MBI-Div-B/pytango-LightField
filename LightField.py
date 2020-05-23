@@ -268,7 +268,6 @@ class LightFieldCamera(Device):
         if data.Frames > 0:
             frame = data.GetFrame(0, 0)
             self._image = imageframe_to_numpy(frame)
-            
             dim_x, dim_y = self._image.shape
             print('new image:', self._image.shape, file=self.log_info)
             self.push_change_event('image', self._image, dim_y, dim_x)
@@ -316,11 +315,12 @@ def imageframe_to_numpy(frame):
                   ImageDataFormat.MonochromeFloating32: ctypes.c_float}
         buf_type = dtypes[image_format] * len(buffer)
         cbuf = buf_type.from_address(src_ptr)
-        imagedata = np.frombuffer(cbuf, dtype=cbuf._type_)
+        image = np.frombuffer(cbuf, dtype=cbuf._type_)
+        image = np.rot90(image.reshape(frame.Height, frame.Width), -1).T
     finally:        
         if src_hndl.IsAllocated:
             src_hndl.Free()
-    return np.copy(imagedata).reshape(frame.Height, frame.Width)
+    return np.copy(image)
 
 
 if __name__ == '__main__':
