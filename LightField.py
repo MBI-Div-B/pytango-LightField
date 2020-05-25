@@ -315,12 +315,12 @@ def imageframe_to_numpy(frame):
                   ImageDataFormat.MonochromeFloating32: ctypes.c_float}
         buf_type = dtypes[image_format] * len(buffer)
         cbuf = buf_type.from_address(src_ptr)
-        image = np.frombuffer(cbuf, dtype=cbuf._type_)
+        image = np.frombuffer(cbuf, dtype=cbuf._type_).copy()
         image = np.rot90(image.reshape(frame.Height, frame.Width), -1).T
     finally:        
         if src_hndl.IsAllocated:
             src_hndl.Free()
-    return np.copy(image)
+    return image
 
 
 if __name__ == '__main__':
