@@ -62,8 +62,9 @@ class LightFieldCamera(Device):
         dict(name='adc_speed', label='ADC speed', access=READ_WRITE,
               dtype=tango.DevFloat, lf=cs.AdcSpeed, unit='MHz'),
         # experiment settings
-        dict(name='n_frames', label='number of acquisitions', access=READ_WRITE,
-              dtype=tango.DevLong, lf=es.AcquisitionFramesToStore),
+        dict(name='accumulations', label='number of acquisitions per frame',
+             access=READ_WRITE, dtype=tango.DevLong,
+             lf=es.OnlineProcessingFrameCombinationFramesCombined),
         dict(name='save_folder', label='data folder', access=READ_WRITE,
               dtype=tango.DevString, lf=es.FileNameGenerationDirectory),
         dict(name='save_base', label='base name', access=READ_WRITE,
@@ -91,7 +92,7 @@ class LightFieldCamera(Device):
     attr_keys = {d['name']: d['lf'] for d in DYN_ATTRS}
     
     image = attribute(name='image', label='CCD image', max_dim_x=4096,
-                      max_dim_y=4096, dtype=((tango.DevUShort,),), access=READ)
+                      max_dim_y=4096, dtype=((tango.DevFloat,),), access=READ)
     
     def init_device(self):
         Device.init_device(self)
@@ -105,6 +106,7 @@ class LightFieldCamera(Device):
             name, model, sn, shape = self.get_sensor_info()
             print('Connected:', model, name, sn, file=self.log_info)
             self._image = np.zeros(shape)
+            self._accum = 0
             self.register_events()
             self.setup_file_save()
         else:
@@ -251,6 +253,9 @@ class LightFieldCamera(Device):
     def acquire(self):
         self.increment_to_next_free()
         if self.exp.IsReadyToRun:
+            self._image = 0
+            self._accum = 0
+            self._preview = False
             self.exp.Acquire()
     
     @command
@@ -261,13 +266,19 @@ class LightFieldCamera(Device):
     def preview(self):
         self.increment_to_next_free()
         if self.exp.IsReadyToRun:
+            self._preview = True
             self.exp.Preview()
     
     def handler_new_data(self, sender, event_args):
         data = event_args.ImageDataSet
         if data.Frames > 0:
             frame = data.GetFrame(0, 0)
-            self._image = imageframe_to_numpy(frame)
+            im = imageframe_to_numpy(frame).astype(np.float32)
+            if not self._preview:
+                self._image = ((self._image * self._accum) + im) / (self._accum + 1)
+                self._accum += 1
+            else:
+                self._image = im
             dim_x, dim_y = self._image.shape
             print('new image:', self._image.shape, file=self.log_info)
             self.push_change_event('image', self._image, dim_y, dim_x)
