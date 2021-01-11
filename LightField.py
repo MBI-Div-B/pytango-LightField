@@ -93,6 +93,8 @@ class LightFieldCamera(Device):
     
     image = attribute(name='image', label='CCD image', max_dim_x=4096,
                       max_dim_y=4096, dtype=((tango.DevFloat,),), access=READ)
+    imshape = attribute(name='im_shape', label='expected image shape',
+                        access=READ, dtype=(int,), max_dim_x=4)
     
     def init_device(self):
         Device.init_device(self)
@@ -106,6 +108,8 @@ class LightFieldCamera(Device):
             name, model, sn, shape = self.get_sensor_info()
             print('Connected:', model, name, sn, file=self.log_info)
             self._image = np.zeros(shape)
+            self._imshape = shape
+            self._sensorshape = shape
             self._accum = 0
             self.register_events()
             self.setup_file_save()
@@ -210,6 +214,9 @@ class LightFieldCamera(Device):
     def read_image(self):
         return self._image
     
+    def read_imshape(self):
+        return self._imshape
+    
     @command(dtype_in=int)
     def set_binning(self, N):
         '''Sets the camera to full chip binning mode.
@@ -219,9 +226,11 @@ class LightFieldCamera(Device):
         if not self.exp.IsRunning:
             if N > 1:
                 self.exp.SetBinnedSensorRegion(N, N)
+                self._imshape = [int(npx // N) for npx in self._sensorshape]
                 print(f'full chip binning {N}x{N}', file=self.log_debug)
             else:
                 self.exp.SetFullSensorRegion()
+                self._imshape = self._sensorshape
                 print('full chip unbinned', file=self.log_debug)
     
     @command(dtype_in=(int,), doc_in='list of ints [x0, x1, y0, y1, bin]',
@@ -233,14 +242,15 @@ class LightFieldCamera(Device):
         '''
         if not self.exp.IsRunning:
             if len(roi) == 4:
-                x0, x1, y0, y1 = [roi[i] for i in range(4)]
+                x0, x1, y0, y1 = roi
                 N = 1
             elif len(roi) > 4:
-                x0, x1, y0, y1, N = [roi[i] for i in range(5)]
+                x0, x1, y0, y1, N = roi
             else:
                 print('cannot understand ROI', file=self.log_error)
                 return False
             region = RegionOfInterest(x0, y0, x1 - x0, y1 - y0, N, N)
+            self._imshape = [int((x1 - x0) // N), int((y1 - y0) // N)]
             
             self.exp.SetCustomRegions((region,))
             print('set custom ROI', file=self.log_debug)
@@ -249,6 +259,20 @@ class LightFieldCamera(Device):
             print('Cannot set ROI during acquisition', file=self.log_error)
             return False
     
+    @command(dtype_out=(int,),
+             doc_out='get width and height of the currently active ROI')
+    def get_roi_size(self):
+        '''Return image size for the current ROI settings.
+
+        As some hardware supports separate non-contiguous regions in a single
+        ROI, this always returns a spectrum of ints such as
+        `[width0, height0, width1, height1, ...]`.'''
+        rois = self.exp.SelectedRegions
+        roi_size = []
+        for roi in rois:
+            roi_size += [roi.Width, roi.Height]
+        return roi_size
+
     @command
     def acquire(self):
         self.increment_to_next_free()

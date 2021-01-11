@@ -25,6 +25,7 @@ from PrincetonInstruments.LightField.AddIns import CameraSettings as cs
 from PrincetonInstruments.LightField.AddIns import ExperimentSettings as es
 from PrincetonInstruments.LightField.AddIns import DeviceType
 from PrincetonInstruments.LightField.AddIns import ImageDataFormat
+from PrincetonInstruments.LightField.AddIns import RegionOfInterest
 
 from System.Runtime.InteropServices import GCHandle, GCHandleType
 from System import String
@@ -44,6 +45,25 @@ import time
 lf = Automation(True, List[String]())
 exp = lf.LightFieldApplication.Experiment
 disp = lf.LightFieldApplication.DisplayManager.GetDisplay(0, 0)
+
+
+# %% get current ROI object
+
+roi = exp.SelectedRegions[0]
+
+# try to get a list of attributes and methods
+print(dir(roi))
+
+# maybe iterable?
+try:
+    for n in roi:
+        print(n)
+except:
+    pass
+
+# %% or play around with a fresh ROI object:
+new_roi = RegionOfInterest(0, 0, 1024, 1024, 1, 1)
+print(dir(new_roi))
 
 
 # %% get the image view data
