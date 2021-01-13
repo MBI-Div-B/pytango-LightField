@@ -43,58 +43,58 @@ class LightFieldCamera(Device):
         dict(name='temp_read', label='sensor temperature', access=READ,
              dtype=tango.DevFloat, unit='degC', lf=cs.SensorTemperatureReading),
         dict(name='temp_set', label='temperature setpoint', access=READ_WRITE,
-              dtype=tango.DevFloat, unit='degC', lf=cs.SensorTemperatureSetPoint),
+             dtype=tango.DevFloat, unit='degC', lf=cs.SensorTemperatureSetPoint),
         # FIXME: this should be a DevEnum, which is currently bugged in
         # dynamic creation: https://github.com/tango-controls/pytango/pull/348
         dict(name='temp_status', label='temperature locked', access=READ,
-              dtype=tango.DevLong, lf=cs.SensorTemperatureStatus,
-              enum_labels=['invalid', 'unlocked', 'locked', 'fault']),
+             dtype=tango.DevLong, lf=cs.SensorTemperatureStatus,
+             enum_labels=['invalid', 'unlocked', 'locked', 'fault']),
         # FIXME: DevEnum
         dict(name='shutter_mode', label='shutter mode', access=READ_WRITE,
-              dtype=tango.DevLong, lf=cs.ShutterTimingMode,
-              enum_labels=['invalid', 'normal', 'closed', 'open', 'trigger']),
+             dtype=tango.DevLong, lf=cs.ShutterTimingMode,
+             enum_labels=['invalid', 'normal', 'closed', 'open', 'trigger']),
         dict(name='shutter_close', label='shutter closing time', access=READ_WRITE,
-              dtype=tango.DevFloat, unit='ms', lf=cs.ShutterTimingClosingDelay),
+             dtype=tango.DevFloat, unit='ms', lf=cs.ShutterTimingClosingDelay),
         dict(name='exposure', label='exposure time', access=READ_WRITE,
-              dtype=tango.DevFloat, unit='ms', lf=cs.ShutterTimingExposureTime),
+             dtype=tango.DevFloat, unit='ms', lf=cs.ShutterTimingExposureTime),
         dict(name='n_ports', label='readout ports', access=READ_WRITE,
-              dtype=tango.DevLong, lf=cs.ReadoutControlPortsUsed),
+             dtype=tango.DevLong, lf=cs.ReadoutControlPortsUsed),
         dict(name='adc_speed', label='ADC speed', access=READ_WRITE,
-              dtype=tango.DevFloat, lf=cs.AdcSpeed, unit='MHz'),
+             dtype=tango.DevFloat, lf=cs.AdcSpeed, unit='MHz'),
         # experiment settings
         dict(name='accumulations', label='number of acquisitions per frame',
              access=READ_WRITE, dtype=tango.DevLong,
              lf=es.OnlineProcessingFrameCombinationFramesCombined),
         dict(name='save_folder', label='data folder', access=READ_WRITE,
-              dtype=tango.DevString, lf=es.FileNameGenerationDirectory),
+             dtype=tango.DevString, lf=es.FileNameGenerationDirectory),
         dict(name='save_base', label='base name', access=READ_WRITE,
-              dtype=tango.DevString, lf=es.FileNameGenerationBaseFileName),
+             dtype=tango.DevString, lf=es.FileNameGenerationBaseFileName),
         dict(name='save_index', label='file index', access=READ_WRITE,
-              dtype=tango.DevLong, lf=es.FileNameGenerationIncrementNumber,
-              min_value='0'),
+             dtype=tango.DevLong, lf=es.FileNameGenerationIncrementNumber,
+             min_value='0'),
         dict(name='save_digits', label='index length', access=READ_WRITE,
-              dtype=tango.DevLong, min_value='1', max_value='10',
-              lf=es.FileNameGenerationIncrementMinimumDigits),
+             dtype=tango.DevLong, min_value='1', max_value='10',
+             lf=es.FileNameGenerationIncrementMinimumDigits),
         dict(name='orient_on', label='apply image orientatiation',
-              access=READ_WRITE, dtype=tango.DevBoolean,
-              lf=es.OnlineCorrectionsOrientationCorrectionEnabled),
+             access=READ_WRITE, dtype=tango.DevBoolean,
+             lf=es.OnlineCorrectionsOrientationCorrectionEnabled),
         dict(name='orient_hor', label='flip horizontally',
-              access=READ_WRITE, dtype=tango.DevBoolean,
-              lf=es.OnlineCorrectionsOrientationCorrectionFlipHorizontally),
+             access=READ_WRITE, dtype=tango.DevBoolean,
+             lf=es.OnlineCorrectionsOrientationCorrectionFlipHorizontally),
         dict(name='orient_ver', label='flip vertically',
-              access=READ_WRITE, dtype=tango.DevBoolean,
-              lf=es.OnlineCorrectionsOrientationCorrectionFlipVertically),
+             access=READ_WRITE, dtype=tango.DevBoolean,
+             lf=es.OnlineCorrectionsOrientationCorrectionFlipVertically),
         dict(name='orient_rot', label='rotate 90 degree',
-              access=READ_WRITE, dtype=tango.DevLong,
-              lf=es.OnlineCorrectionsOrientationCorrectionRotateClockwise),
+             access=READ_WRITE, dtype=tango.DevLong,
+             lf=es.OnlineCorrectionsOrientationCorrectionRotateClockwise),
         ]
     
     attr_keys = {d['name']: d['lf'] for d in DYN_ATTRS}
     
     image = attribute(name='image', label='CCD image', max_dim_x=4096,
                       max_dim_y=4096, dtype=((tango.DevFloat,),), access=READ)
-    chip_shape = attribute(name='chip_shape', label='expected image shape',
-                        access=READ, dtype=(int,), max_dim_x=4)
+    chip_shape = attribute(name='chip_shape', label='pixel size of the sensor',
+                           access=READ, dtype=(int,), max_dim_x=4)
     
     def init_device(self):
         Device.init_device(self)
@@ -239,6 +239,7 @@ class LightFieldCamera(Device):
         '''Sets the camera to a (possibly binned) ROI.
         
         input is a list of ints [x0, x1, y0, y1, binning]
+        binning will be set to one if not specified
         '''
         if not self.exp.IsRunning:
             if len(roi) == 4:
@@ -265,8 +266,8 @@ class LightFieldCamera(Device):
         '''Return image size for the current ROI settings.
 
         As some hardware supports separate non-contiguous regions in a single
-        ROI, this always returns a spectrum of ints such as
-        `[width0, height0, width1, height1, ...]`.'''
+        ROI, this returns the following numbers for each region in a flattened
+        list: `[offsetX, offsetY, width, height, binX, binY]`.'''
         rois = self.exp.SelectedRegions
         roi_size = []
         for roi in rois:
