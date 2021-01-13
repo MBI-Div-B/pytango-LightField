@@ -270,7 +270,7 @@ class LightFieldCamera(Device):
         rois = self.exp.SelectedRegions
         roi_size = []
         for roi in rois:
-            roi_size += [roi.Width, roi.Height]
+            roi_size += [roi.X, roi.Y, roi.Width, roi.Height, roi.XBinning, roi.YBinning]
         return roi_size
 
     @command
