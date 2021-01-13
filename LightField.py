@@ -43,56 +43,58 @@ class LightFieldCamera(Device):
         dict(name='temp_read', label='sensor temperature', access=READ,
              dtype=tango.DevFloat, unit='degC', lf=cs.SensorTemperatureReading),
         dict(name='temp_set', label='temperature setpoint', access=READ_WRITE,
-              dtype=tango.DevFloat, unit='degC', lf=cs.SensorTemperatureSetPoint),
+             dtype=tango.DevFloat, unit='degC', lf=cs.SensorTemperatureSetPoint),
         # FIXME: this should be a DevEnum, which is currently bugged in
         # dynamic creation: https://github.com/tango-controls/pytango/pull/348
         dict(name='temp_status', label='temperature locked', access=READ,
-              dtype=tango.DevLong, lf=cs.SensorTemperatureStatus,
-              enum_labels=['invalid', 'unlocked', 'locked', 'fault']),
+             dtype=tango.DevLong, lf=cs.SensorTemperatureStatus,
+             enum_labels=['invalid', 'unlocked', 'locked', 'fault']),
         # FIXME: DevEnum
         dict(name='shutter_mode', label='shutter mode', access=READ_WRITE,
-              dtype=tango.DevLong, lf=cs.ShutterTimingMode,
-              enum_labels=['invalid', 'normal', 'closed', 'open', 'trigger']),
+             dtype=tango.DevLong, lf=cs.ShutterTimingMode,
+             enum_labels=['invalid', 'normal', 'closed', 'open', 'trigger']),
         dict(name='shutter_close', label='shutter closing time', access=READ_WRITE,
-              dtype=tango.DevFloat, unit='ms', lf=cs.ShutterTimingClosingDelay),
+             dtype=tango.DevFloat, unit='ms', lf=cs.ShutterTimingClosingDelay),
         dict(name='exposure', label='exposure time', access=READ_WRITE,
-              dtype=tango.DevFloat, unit='ms', lf=cs.ShutterTimingExposureTime),
+             dtype=tango.DevFloat, unit='ms', lf=cs.ShutterTimingExposureTime),
         dict(name='n_ports', label='readout ports', access=READ_WRITE,
-              dtype=tango.DevLong, lf=cs.ReadoutControlPortsUsed),
+             dtype=tango.DevLong, lf=cs.ReadoutControlPortsUsed),
         dict(name='adc_speed', label='ADC speed', access=READ_WRITE,
-              dtype=tango.DevFloat, lf=cs.AdcSpeed, unit='MHz'),
+             dtype=tango.DevFloat, lf=cs.AdcSpeed, unit='MHz'),
         # experiment settings
         dict(name='accumulations', label='number of acquisitions per frame',
              access=READ_WRITE, dtype=tango.DevLong,
              lf=es.OnlineProcessingFrameCombinationFramesCombined),
         dict(name='save_folder', label='data folder', access=READ_WRITE,
-              dtype=tango.DevString, lf=es.FileNameGenerationDirectory),
+             dtype=tango.DevString, lf=es.FileNameGenerationDirectory),
         dict(name='save_base', label='base name', access=READ_WRITE,
-              dtype=tango.DevString, lf=es.FileNameGenerationBaseFileName),
+             dtype=tango.DevString, lf=es.FileNameGenerationBaseFileName),
         dict(name='save_index', label='file index', access=READ_WRITE,
-              dtype=tango.DevLong, lf=es.FileNameGenerationIncrementNumber,
-              min_value='0'),
+             dtype=tango.DevLong, lf=es.FileNameGenerationIncrementNumber,
+             min_value='0'),
         dict(name='save_digits', label='index length', access=READ_WRITE,
-              dtype=tango.DevLong, min_value='1', max_value='10',
-              lf=es.FileNameGenerationIncrementMinimumDigits),
+             dtype=tango.DevLong, min_value='1', max_value='10',
+             lf=es.FileNameGenerationIncrementMinimumDigits),
         dict(name='orient_on', label='apply image orientatiation',
-              access=READ_WRITE, dtype=tango.DevBoolean,
-              lf=es.OnlineCorrectionsOrientationCorrectionEnabled),
+             access=READ_WRITE, dtype=tango.DevBoolean,
+             lf=es.OnlineCorrectionsOrientationCorrectionEnabled),
         dict(name='orient_hor', label='flip horizontally',
-              access=READ_WRITE, dtype=tango.DevBoolean,
-              lf=es.OnlineCorrectionsOrientationCorrectionFlipHorizontally),
+             access=READ_WRITE, dtype=tango.DevBoolean,
+             lf=es.OnlineCorrectionsOrientationCorrectionFlipHorizontally),
         dict(name='orient_ver', label='flip vertically',
-              access=READ_WRITE, dtype=tango.DevBoolean,
-              lf=es.OnlineCorrectionsOrientationCorrectionFlipVertically),
+             access=READ_WRITE, dtype=tango.DevBoolean,
+             lf=es.OnlineCorrectionsOrientationCorrectionFlipVertically),
         dict(name='orient_rot', label='rotate 90 degree',
-              access=READ_WRITE, dtype=tango.DevLong,
-              lf=es.OnlineCorrectionsOrientationCorrectionRotateClockwise),
+             access=READ_WRITE, dtype=tango.DevLong,
+             lf=es.OnlineCorrectionsOrientationCorrectionRotateClockwise),
         ]
     
     attr_keys = {d['name']: d['lf'] for d in DYN_ATTRS}
     
     image = attribute(name='image', label='CCD image', max_dim_x=4096,
                       max_dim_y=4096, dtype=((tango.DevFloat,),), access=READ)
+    chip_shape = attribute(name='chip_shape', label='pixel size of the sensor',
+                           access=READ, dtype=(int,), max_dim_x=4)
     
     def init_device(self):
         Device.init_device(self)
@@ -106,6 +108,8 @@ class LightFieldCamera(Device):
             name, model, sn, shape = self.get_sensor_info()
             print('Connected:', model, name, sn, file=self.log_info)
             self._image = np.zeros(shape)
+            self._chip_shape = shape
+            self._sensorshape = shape
             self._accum = 0
             self.register_events()
             self.setup_file_save()
@@ -210,6 +214,9 @@ class LightFieldCamera(Device):
     def read_image(self):
         return self._image
     
+    def read_chip_shape(self):
+        return self._chip_shape
+    
     @command(dtype_in=int)
     def set_binning(self, N):
         '''Sets the camera to full chip binning mode.
@@ -219,9 +226,11 @@ class LightFieldCamera(Device):
         if not self.exp.IsRunning:
             if N > 1:
                 self.exp.SetBinnedSensorRegion(N, N)
+                self._imshape = [int(npx // N) for npx in self._sensorshape]
                 print(f'full chip binning {N}x{N}', file=self.log_debug)
             else:
                 self.exp.SetFullSensorRegion()
+                self._imshape = self._sensorshape
                 print('full chip unbinned', file=self.log_debug)
     
     @command(dtype_in=(int,), doc_in='list of ints [x0, x1, y0, y1, bin]',
@@ -230,17 +239,19 @@ class LightFieldCamera(Device):
         '''Sets the camera to a (possibly binned) ROI.
         
         input is a list of ints [x0, x1, y0, y1, binning]
+        binning will be set to one if not specified
         '''
         if not self.exp.IsRunning:
             if len(roi) == 4:
-                x0, x1, y0, y1 = [roi[i] for i in range(4)]
+                x0, x1, y0, y1 = roi
                 N = 1
             elif len(roi) > 4:
-                x0, x1, y0, y1, N = [roi[i] for i in range(5)]
+                x0, x1, y0, y1, N = roi
             else:
                 print('cannot understand ROI', file=self.log_error)
                 return False
             region = RegionOfInterest(x0, y0, x1 - x0, y1 - y0, N, N)
+            self._imshape = [int((x1 - x0) // N), int((y1 - y0) // N)]
             
             self.exp.SetCustomRegions((region,))
             print('set custom ROI', file=self.log_debug)
@@ -249,6 +260,20 @@ class LightFieldCamera(Device):
             print('Cannot set ROI during acquisition', file=self.log_error)
             return False
     
+    @command(dtype_out=(int,),
+             doc_out='get width and height of the currently active ROI')
+    def get_roi_size(self):
+        '''Return image size for the current ROI settings.
+
+        As some hardware supports separate non-contiguous regions in a single
+        ROI, this returns the following numbers for each region in a flattened
+        list: `[offsetX, offsetY, width, height, binX, binY]`.'''
+        rois = self.exp.SelectedRegions
+        roi_size = []
+        for roi in rois:
+            roi_size += [roi.X, roi.Y, roi.Width, roi.Height, roi.XBinning, roi.YBinning]
+        return roi_size
+
     @command
     def acquire(self):
         self.increment_to_next_free()
