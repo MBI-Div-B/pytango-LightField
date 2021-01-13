@@ -93,7 +93,7 @@ class LightFieldCamera(Device):
     
     image = attribute(name='image', label='CCD image', max_dim_x=4096,
                       max_dim_y=4096, dtype=((tango.DevFloat,),), access=READ)
-    imshape = attribute(name='im_shape', label='expected image shape',
+    chip_shape = attribute(name='chip_shape', label='expected image shape',
                         access=READ, dtype=(int,), max_dim_x=4)
     
     def init_device(self):
@@ -108,7 +108,7 @@ class LightFieldCamera(Device):
             name, model, sn, shape = self.get_sensor_info()
             print('Connected:', model, name, sn, file=self.log_info)
             self._image = np.zeros(shape)
-            self._imshape = shape
+            self._chip_shape = shape
             self._sensorshape = shape
             self._accum = 0
             self.register_events()
@@ -214,8 +214,8 @@ class LightFieldCamera(Device):
     def read_image(self):
         return self._image
     
-    def read_imshape(self):
-        return self._imshape
+    def read_chip_shape(self):
+        return self._chip_shape
     
     @command(dtype_in=int)
     def set_binning(self, N):
