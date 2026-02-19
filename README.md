@@ -3,6 +3,6 @@ tango device server to control Princeton Instruments LightField software. Requir
 
 # Requirements
 * tested with LightField 6.10.1.1903
-* pythonnet
+* pythonnet<3
 * numpy
 * pytango
